@@ -1,0 +1,115 @@
+name: tvOS Unsigned Build
+
+# Builds an unsigned Release .ipa for Apple TV hardware (not the simulator),
+# to be re-signed and installed by a sideloading tool. Runs on pushes to any
+# branch, on fork-v* tags, and on demand.
+#
+# Secrets.swift: set the repository secret SECRETS_SWIFT_BASE64 to
+# `base64 -w0 RivuletCore/Config/Secrets.swift` for a build with working
+# keys; without it the placeholder template is used.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    tags: ['fork-v*']
+    paths-ignore:
+      - '**.md'
+      - 'Docs/**'
+      - 'Screenshots/**'
+      - 'RivuletiOS/**'
+
+concurrency:
+  group: build-tvos-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Prefer codemagic.yaml's exact pin; fall back to the newest Xcode of
+      # the same major if the hosted image doesn't carry that exact version.
+      - name: Select Xcode
+        run: |
+          PIN="$(awk '/^ *xcode:/ {print $2; exit}' codemagic.yaml)"
+          echo "Pinned Xcode: $PIN"
+          ls -d /Applications/Xcode*.app || true
+          APP="/Applications/Xcode_$PIN.app"
+          if [ ! -d "$APP" ]; then
+            MAJOR="${PIN%%.*}"
+            APP="$(ls -d /Applications/Xcode_${MAJOR}*.app 2>/dev/null | sort -V | tail -1)"
+            [ -n "$APP" ] || { echo "::error::No Xcode $MAJOR.x on this runner image"; exit 1; }
+            echo "::warning::Xcode $PIN not found, using $APP"
+          fi
+          sudo xcode-select -s "$APP/Contents/Developer"
+          xcodebuild -version
+
+      - name: Write Secrets.swift
+        env:
+          SECRETS_SWIFT_BASE64: ${{ secrets.SECRETS_SWIFT_BASE64 }}
+        run: |
+          if [ -n "$SECRETS_SWIFT_BASE64" ]; then
+            echo "$SECRETS_SWIFT_BASE64" | base64 --decode > RivuletCore/Config/Secrets.swift
+          else
+            echo "::notice::SECRETS_SWIFT_BASE64 not set, using the placeholder template"
+            cp RivuletCore/Config/Secrets.swift.template RivuletCore/Config/Secrets.swift
+          fi
+
+      # A fork-v1.2.0-122.1 tag stamps CFBundleVersion 122.1 (see FORK.md), so
+      # the What's New entry keyed "1.2.0 (122.1)" matches.
+      - name: Stamp build number from tag
+        if: startsWith(github.ref, 'refs/tags/fork-v')
+        run: |
+          BUILD="${GITHUB_REF_NAME##*-}"
+          echo "Build number: $BUILD"
+          xcrun agvtool new-version -all "$BUILD"
+
+      - name: Cache Swift packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Rivulet.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build Rivulet (Release, device, unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Rivulet.xcodeproj \
+            -scheme "Rivulet" \
+            -configuration Release \
+            -destination 'generic/platform=tvOS' \
+            -derivedDataPath build \
+            -clonedSourcePackagesDirPath SourcePackages \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package .ipa
+        id: package
+        run: |
+          APP="build/Build/Products/Release-appletvos/Rivulet.app"
+          [ -d "$APP" ] || { echo "::error::$APP not found"; ls build/Build/Products || true; exit 1; }
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
+          BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
+          NAME="Rivulet-${VERSION}-${BUILD}-${GITHUB_SHA::7}-unsigned"
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          (cd out && zip -qry "$NAME.ipa" Payload)
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          ls -lh "out/$NAME.ipa"
+
+      - name: Upload .ipa
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: out/${{ steps.package.outputs.name }}.ipa
+          if-no-files-found: error
+          retention-days: 30
