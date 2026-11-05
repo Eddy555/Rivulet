@@ -441,6 +441,9 @@ final class MediaDetailChromeView: UIView {
 
         guard let item = item else { return }
 
+        // Titles Over Artwork off: the slot keeps its height, so the chrome below does not move.
+        logoSlotView.alpha = ArtworkTitles.shown ? 1 : 0
+
         descriptionMaxWidth?.constant = item.kind == .episode
             ? Self.episodeDescriptionMaxWidth : Self.descriptionMaxWidth
         rebuildGenreRow(item: item, detail: nil)

@@ -52,7 +52,8 @@ enum TopShelfComposer {
             //    when this item's file is not already there. Off the main thread:
             //    the compositor analyses the backdrop.
             let backdropURLString = item.wideImageURL.isEmpty ? item.imageURL : item.wideImageURL
-            if !logoURLString.isEmpty {
+            //    Titles Over Artwork off: the plain backdrop, as with no logo.
+            if !logoURLString.isEmpty, ArtworkTitles.shown {
                 let fileName = TopShelfImageCompositor.fileName(
                     ratingKey: item.ratingKey, backdropURL: backdropURLString, logoURL: logoURLString)
                 if let url = TopShelfCache.shared.compositeFileURL(fileName: fileName),

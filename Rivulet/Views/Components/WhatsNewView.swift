@@ -155,6 +155,10 @@ struct WhatsNewView: View {
     // MARK: - Changelog Data
 
     static let changelogs: [(version: String, features: [String])] = [
+        ("1.2.0 (122.1)", [
+            "Continue Watching hides its title more reliably on episode artwork that already shows the show's name.",
+            "New Titles Over Artwork setting in Appearance. Turn it off if your background art already has the title on it.",
+        ]),
         ("1.2.0 (122)", [
             "> I removed Dolby Vision FEL and Height Speakers because of licensing uncertainty. Profile 7 now plays as 8.1 on a Dolby Vision TV, and TrueHD and DTS-HD play as lossless 7.1. Sorry if this is what brought you to Rivulet.",
         ]),

@@ -2874,6 +2874,8 @@ final class UniversalPlayerViewModel: ObservableObject {
     private func fetchTitleLogoIfNeeded() {
         titleLogoResolveTask?.cancel()
         titleLogoImage = nil
+        // The pause screen is the logo's only reader; it sits over the backdrop.
+        guard ArtworkTitles.shown else { return }
 
         if let url = artworkURL(
             plex: { plexImageURL(metadata.clearLogoPath) },

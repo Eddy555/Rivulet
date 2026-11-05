@@ -406,6 +406,13 @@ enum SettingsContent {
                             kind: .cycle(value: { TopShelfCache.shared.fullScreen ? String(localized: "Full Screen") : String(localized: "Posters") },
                                          next: { TopShelfCache.shared.fullScreen.toggle() })),
             toggle("skipPreview", "Skip Preview", key: "skipPreviewCarousel", default: false),
+            // Readers: `ArtworkTitles.shown`. Top Shelf composites are rebuilt on a flip.
+            SettingsRowItem(id: "titlesOverArtwork", title: "Titles Over Artwork", kind: .toggle(
+                get: { ArtworkTitles.shown },
+                set: {
+                    SettingsStore.setBool(ArtworkTitles.key, $0)
+                    Task { await TopShelfFeed.refresh() }
+                })),
 
             // Titles drop whatever their caption already says ("Home Hero" under
             // HOME reads as "Home Home Hero"), the way Apple TV Settings puts a

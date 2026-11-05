@@ -802,12 +802,14 @@ private final class MediaItemSlideView: UIView {
 
     private var currentLogoURL: URL?
     private var logoLoadTask: Task<Void, Never>?
+    private var titlesObserver: AnyCancellable?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         translatesAutoresizingMaskIntoConstraints = false
         setUp()
+        titlesObserver = ArtworkTitles.observe { [weak self] _ in self?.applyTitleVisibility() }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -941,8 +943,7 @@ private final class MediaItemSlideView: UIView {
 
         if url == currentLogoURL && logoImageView.image != nil {
             fallbackTitleLabel.text = fallbackTitle
-            fallbackTitleLabel.isHidden = true
-            logoImageView.isHidden = false
+            applyTitleVisibility()
             onReady?()
             return
         }
@@ -950,17 +951,15 @@ private final class MediaItemSlideView: UIView {
 
         guard let url else {
             logoImageView.image = nil
-            logoImageView.isHidden = true
             fallbackTitleLabel.text = fallbackTitle
-            fallbackTitleLabel.isHidden = false
+            applyTitleVisibility()
             onReady?()
             return
         }
 
         logoImageView.image = nil
-        logoImageView.isHidden = true
         fallbackTitleLabel.text = fallbackTitle
-        fallbackTitleLabel.isHidden = false
+        applyTitleVisibility()
 
         logoLoadTask = Task { [weak self] in
             let image = await ImageCacheManager.shared.image(for: url)
@@ -970,13 +969,19 @@ private final class MediaItemSlideView: UIView {
                 defer { onReady?() }
                 if let image {
                     self.logoImageView.image = image
-                    self.logoImageView.isHidden = false
-                    self.fallbackTitleLabel.isHidden = true
+                    self.applyTitleVisibility()
                     self.logoImageView.alpha = 0
                     UIView.animate(withDuration: 0.22) { self.logoImageView.alpha = 1 }
                 }
             }
         }
+    }
+
+    /// The logo once loaded, else the fallback title; neither with Titles Over Artwork off.
+    private func applyTitleVisibility() {
+        let shown = ArtworkTitles.shown
+        logoImageView.isHidden = !shown || logoImageView.image == nil
+        fallbackTitleLabel.isHidden = !shown || logoImageView.image != nil || (fallbackTitleLabel.text ?? "").isEmpty
     }
 
     // MARK: - Helpers

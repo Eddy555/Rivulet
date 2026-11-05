@@ -17,6 +17,7 @@
 //  Wrapped in `TVCardView` for native tvOS focus motion (parallax, glow).
 //
 
+import Combine
 import UIKit
 import TVUIKit
 
@@ -196,7 +197,9 @@ final class ContinueWatchingCell: UICollectionViewCell {
     static func prewarm(_ items: some Sequence<MediaItem>, scale: CGFloat) {
         for item in items {
             let (logoURL, url) = urls(for: item)
-            ContinueWatchingTitleLogoView.prewarm(logoURL: logoURL, title: item.title, artworkURL: url, scale: scale)
+            // The show's name, as `configure` passes: both share one prepared title.
+            ContinueWatchingTitleLogoView.prewarm(logoURL: logoURL, title: item.seriesTitle ?? item.title,
+                                                  artworkURL: url, scale: scale)
             guard let url, ContinueWatchingCardCompositor.cached(.card, for: url, geometry: geometry, scale: scale) == nil
             else { continue }
             Task { _ = await ContinueWatchingCardCompositor.image(.card, for: url, geometry: geometry, scale: scale) }
@@ -320,9 +323,13 @@ private final class ContinueWatchingTitleLogoView: UIView {
     private var deadlineTask: Task<Void, Never>?
     private var checkTask: Task<Void, Never>?
     private var currentItemKey: String?
+    /// The still already shows the title (#450).
+    private var stillShowsTitle = false
+    private var titlesObserver: AnyCancellable?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        titlesObserver = ArtworkTitles.observe { [weak self] _ in self?.applyVisibility() }
         isUserInteractionEnabled = false
         backgroundColor = .clear
 
@@ -465,7 +472,8 @@ private final class ContinueWatchingTitleLogoView: UIView {
         imageView.image = nil
         imageView.alpha = 0
         titleLabel.alpha = 0
-        alpha = 1
+        stillShowsTitle = false
+        applyVisibility()
         currentItemKey = key
 
         let geometry = ContinueWatchingCell.geometry, scale = traitCollection.displayScale
@@ -499,14 +507,21 @@ private final class ContinueWatchingTitleLogoView: UIView {
 
     /// Hides the whole title when the still already shows it, fading out if that is learned after it showed.
     private func follow(_ done: Prepared, key: String) {
-        alpha = done.hidesTitle == true ? 0 : 1
+        stillShowsTitle = done.hidesTitle == true
+        applyVisibility()
         guard done.hidesTitle == nil, let check = done.titleCheck else { return }
         checkTask = Task { [weak self] in
             let hides = await check.value
             done.hidesTitle = hides
             guard hides, !Task.isCancelled, let self, self.currentItemKey == key else { return }
-            UIView.animate(withDuration: 0.22) { self.alpha = 0 }
+            self.stillShowsTitle = true
+            UIView.animate(withDuration: 0.22) { self.applyVisibility() }
         }
+    }
+
+    /// Hidden when the still shows the title, or Titles Over Artwork is off.
+    private func applyVisibility() {
+        alpha = ArtworkTitles.shown && !stillShowsTitle ? 1 : 0
     }
 
     func prepareForReuse() {
@@ -514,7 +529,8 @@ private final class ContinueWatchingTitleLogoView: UIView {
         fetchTask = nil
         deadlineTask?.cancel()
         checkTask?.cancel()
-        alpha = 1
+        stillShowsTitle = false
+        applyVisibility()
         currentItemKey = nil
         imageView.image = nil
         imageView.alpha = 0

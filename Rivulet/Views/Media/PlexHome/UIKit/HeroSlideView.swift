@@ -4,6 +4,7 @@
 // Per-slide hero content: logo or serif title, metadata row and a one-line tagline. The 0.22s logo
 // crossfade keeps time with `HeroOverlayView.displayedIndex` and the backdrop.
 
+import Combine
 import UIKit
 
 @MainActor
@@ -31,12 +32,14 @@ final class HeroSlideView: UIView {
 
     private var currentLogoURL: URL?
     private var logoLoadTask: Task<Void, Never>?
+    private var titlesObserver: AnyCancellable?
 
     // MARK: - Init
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         setUp()
+        titlesObserver = ArtworkTitles.observe { [weak self] _ in self?.applyTitleVisibility() }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -192,8 +195,7 @@ final class HeroSlideView: UIView {
         if url == currentLogoURL && logoImageView.image != nil {
             // Same logo as before; just refresh fallback label visibility.
             fallbackTitleLabel.text = fallbackTitle
-            fallbackTitleLabel.isHidden = true
-            logoImageView.isHidden = false
+            applyTitleVisibility()
             completion?()   // already resolved
             return
         }
@@ -201,18 +203,16 @@ final class HeroSlideView: UIView {
 
         guard let url else {
             logoImageView.image = nil
-            logoImageView.isHidden = true
             fallbackTitleLabel.text = fallbackTitle
-            fallbackTitleLabel.isHidden = false
+            applyTitleVisibility()
             completion?()   // no logo -> fallback is the final state
             return
         }
 
         // Show fallback while loading so we never have a blank slot.
         logoImageView.image = nil
-        logoImageView.isHidden = true
         fallbackTitleLabel.text = fallbackTitle
-        fallbackTitleLabel.isHidden = false
+        applyTitleVisibility()
 
         logoLoadTask = Task { [weak self] in
             let image = await ImageCacheManager.shared.image(for: url)
@@ -221,8 +221,7 @@ final class HeroSlideView: UIView {
                 guard self.currentLogoURL == url else { return }
                 if let image {
                     self.logoImageView.image = image
-                    self.logoImageView.isHidden = false
-                    self.fallbackTitleLabel.isHidden = true
+                    self.applyTitleVisibility()
                     if animated {
                         self.logoImageView.alpha = 0
                         UIView.animate(withDuration: 0.22) { self.logoImageView.alpha = 1 }
@@ -232,6 +231,13 @@ final class HeroSlideView: UIView {
                 completion?()
             }
         }
+    }
+
+    /// The logo once loaded, else the fallback title; neither with Titles Over Artwork off.
+    private func applyTitleVisibility() {
+        let shown = ArtworkTitles.shown
+        logoImageView.isHidden = !shown || logoImageView.image == nil
+        fallbackTitleLabel.isHidden = !shown || logoImageView.image != nil || (fallbackTitleLabel.text ?? "").isEmpty
     }
 
     // MARK: - Metadata helpers
